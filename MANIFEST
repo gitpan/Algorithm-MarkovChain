@@ -5,3 +5,4 @@ Makefile.PL
 MarkovChain.pm
 test.pl
 demos/textfile
+demos/empty

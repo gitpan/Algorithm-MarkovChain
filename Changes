@@ -1,5 +1,10 @@
 Revision history for Algorithm::MarkovChain.
 
+
+0.02  Mon Oct 09 17:54:00 2000
+	- test for existence of chains in spew to prevent looping
+
+
 0.01  Sat Sep 30 23:30:25 2000
 	- original version;
 

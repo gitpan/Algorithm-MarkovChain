@@ -4,7 +4,7 @@ use strict;
 require 5.005;
 
 use vars qw($VERSION);
-$VERSION = '0.01';
+$VERSION = '0.02';
 
 use fields qw(_chains _symbols _recover_symbols _longest);
 
@@ -133,6 +133,10 @@ sub spew {
     my Algorithm::MarkovChain $self = shift;
     my %args = @_;
 
+    my @heads = keys %{ $self->{_chains} };
+    croak "spew called without any chains seeded"
+      unless @heads;
+
     my $length = $args{length} || 30;
 
     my @prev;
@@ -147,7 +151,6 @@ sub spew {
     }
 
     if (!@prev) { # pull a random chain from those we've already picked
-        my @heads = keys %{ $self->{_chains} };
         @prev = split $;, $heads[ rand @heads ];
     }
 
