@@ -1,8 +1,9 @@
-README
-Changes
 MANIFEST
+Changes
 Makefile.PL
 MarkovChain.pm
-test.pl
+Base.pm
+t/Algorithm-MarkovChain.t
 demos/textfile
 demos/empty
+demos/dada

@@ -1,12 +1,88 @@
 package Algorithm::MarkovChain;
-use Carp;
 use strict;
-require 5.005;
+use warnings;
+use Carp;
 
-use vars qw($VERSION);
-$VERSION = '0.03';
+require v5.6;
+our $VERSION = '0.05';
 
-use fields qw(_chains _symbols _recover_symbols _longest);
+use base 'Algorithm::MarkovChain::Base';
+use fields qw( chains totals );
+
+sub new {
+    my $invocant = shift;
+    my %args = @_;
+
+    my $class = ref $invocant || $invocant;
+    my Algorithm::MarkovChain $self = $class->SUPER::new(@_);
+
+    $self->{chains} = {};
+    $self->{totals} = {};
+    if ($args{chains}) {
+        croak "can't use non-hashref as storage"
+          unless ref $args{chains} eq 'HASH';
+
+        $self->{chains} = $args{chains};
+    }
+
+    return $self;
+}
+
+
+sub increment_seen {
+    my Algorithm::MarkovChain $self = shift;
+    my ($sequence, $symbol) = @_;
+
+    $self->{totals}{$sequence}++;
+    $self->{chains}{$sequence}{$symbol}++;
+}
+
+
+sub get_options {
+    my Algorithm::MarkovChain $self = shift;
+    my ($sequence) = @_;
+
+    my %res = map {
+        $_ => $self->{chains}{$sequence}{$_} / $self->{totals}{$sequence}
+    } keys %{ $self->{chains}{$sequence} };
+
+    return %res;
+}
+
+
+sub longest_sequence {
+    my Algorithm::MarkovChain $self = shift;
+
+    local $; = $self->{seperator};
+
+    my $l = 0;
+    for (keys %{ $self->{chains} }) {
+        my @tmp = split $;, $_;
+        my $length = scalar @tmp;
+        $l = $length if $length > $l;
+    }
+    return $l;
+}
+
+
+sub sequence_known  {
+    my Algorithm::MarkovChain $self = shift;
+    my ($sequence) = @_;
+
+    return $self->{chains}{$sequence};
+}
+
+
+sub random_sequence {
+    my Algorithm::MarkovChain $self = shift;
+
+    my @h = keys %{ $self->{chains} };
+    return $h[ rand @h ];
+}
+
+
+1;
+__END__
 
 =head1 NAME
 
@@ -31,10 +107,19 @@ Algorithm::MarkovChain - Object oriented Markov chain generator
 Algorithm::MarkovChain is an implementation of the Markov Chain
 algorithm within an object container.
 
+It is implemented as a base class, C<Algorithm::MarkovChain::Base>,
+with storage implementations of a hash (C<Algorithm::MarkovChain>),
+and an fairly memory efficent implementation using C<glib>
+(C<Algorithm::MarkovChain::GHash>).  DBI and MLDBM-friendly versions
+are planned.
+
+Deriving alternate representations is intended to be straightforward.
+
 =head1 METHODS
 
+=over
 
-=head2 Algorithm::MarkovChain::->new() or $obj->new()
+=item Algorithm::MarkovChain::->new() or $obj->new()
 
 Creates a new instance of the Algorithm::MarkovChain class.
 
@@ -45,29 +130,8 @@ values when stringifyed.  With this option enabled steps are taken to
 ensure that the original values for symbols are returned by the
 I<spew> method.
 
-=cut
 
-sub new {
-    my $invocant = shift;
-    my %args = @_;
-
-    my Algorithm::MarkovChain $self;
-
-    my $class = ref $invocant || $invocant;
-    { # yikes, apprently this gets better around 5.6.0
-        no strict 'refs';
-        $self = bless [\%{"$class\::FIELDS"}], $class;
-    }
-
-    $self->{_longest} = 0;
-    $self->{_chains} = {};
-    $self->{_symbols} = {};
-    $self->{_recover_symbols} = $args{recover_symbols};
-
-    return $self;
-}
-
-=head2 $obj->seed()
+=item $obj->seed()
 
 Seeds the markov chains from an example symbol stream.
 
@@ -78,53 +142,14 @@ C<symbols> presents the symbols to seed from
 C<longest> sets an upper limit on the longest chain to
 construct. (defaults to 4)
 
-=cut
 
-sub seed {
-    my Algorithm::MarkovChain $self = shift;
-    my %args = @_;
-
-    croak 'seed: no symbols'  unless $args{symbols};
-    croak 'seed: bad symbols' unless ref($args{symbols}) eq 'ARRAY';
-
-    my $longest = $args{longest} || 4;
-
-    local @::symbols;
-    *::symbols = $args{symbols};
-
-    if ($self->{_recover_symbols}) {
-        $self->{_symbols}{$_} = $_ for @::symbols;
-    }
-
-    my %tweaked;
-    for my $length (1..$longest) {
-        for (my $i = 0; ($i + $length) < @::symbols; $i++) {
-            my $link = join($;, @::symbols[$i..$i + $length - 1]);
-            $self->{_chains}{$link}{$::symbols[$i + $length]}{seen}++;
-            $tweaked{$link} = 1;
-        }
-    }
-
-    for my $redo (keys %tweaked) {
-        my @tmp = split $;, $redo;
-        my $length = scalar @tmp;
-        $self->{_longest} = $length
-          if $length > $self->{_longest};
-
-        local %::foo;
-        *::foo = $self->{_chains}{$redo};
-        my $total;
-        $total += $::foo{$_}{seen} for keys %::foo;
-        ($::foo{$_}{prob} = $::foo{$_}{seen} / $total) for keys %::foo;
-    }
-}
-
-=head2 $obj->spew()
+=item $obj->spew()
 
 Uses the constructed chains to produce symbol streams
 
 Takes four optional parameters C<complete>, C<length>,
-C<longest_subchain>, C<force_length> and C<stop_at_terminal>
+C<longest_subchain>, C<force_length>, C<stop_at_terminal> and
+C<strict_start>
 
 C<complete> provides a starting point for the generation of output.
 Note: the algorithm will discard elements of this list if it does not
@@ -138,69 +163,25 @@ terminal point reached
 C<force_length> ensures you get exactly C<length> symbols returned
 (note this overrides the behaviour of C<stop_at_terminal>)
 
-=cut
+C<strict_start> makes the spew operation always take a known start
+state rather than selecting a sequence at random
 
-sub spew {
-    my Algorithm::MarkovChain $self = shift;
-    my %args = @_;
+=item $obj->increment_seen($sequence, $symbol)
 
-    my @heads = keys %{ $self->{_chains} };
-    croak "spew called without any chains seeded"
-      unless @heads;
+Increments the seeness of a symbol following a sequence.
 
-    my $length   = $args{length} || 30;
-    my $subchain = $args{longest_subchain} || $length;
 
-    my @fin; # final chain
-    my @sub; # current sub-chain
-    if ($args{complete} && ref $args{complete} eq 'ARRAY') {
-        @sub = @{ $args{complete} };
-    }
+=item $obj->recompute($sequence)
 
-    while (@fin < $length) {
-        if (@sub && ((!$self->{_chains}{$sub[-1]}) || (@sub > $subchain))) { # we've gone terminal
-            push @fin, @sub;
-            @sub = ();
-            next if $args{force_length}; # ignore stop_at_terminal
-            last if $args{stop_at_terminal};
-        }
+Recompute the probabilities for a branch of the tree.  Called towards
+the end of the seed operation for 'dirty' sequences.
 
-        @sub = split $;, $heads[ rand @heads ]
-          unless @sub;
 
-        my $consider = 1;
-        if (@sub > 1) {
-            $consider = int rand ($self->{_longest} - 1);
-        }
+=head2 $obj->get_options($sequence)
 
-        my $start = join($;, @sub[-$consider..-1]);
+Returns possible next symbols and probablities as a hash.
 
-        next unless $self->{_chains}{$start}; # loop if we missed
-
-        my $cprob;
-        my $target = rand;
-
-        for my $word (keys %{ $self->{_chains}{$start} }) {
-            $cprob += $self->{_chains}{$start}{$word}{prob};
-            if ($cprob >= $target) {
-                push @sub, $word;
-                last;
-            }
-        }
-    }
-
-    $#fin = $length
-      if $args{force_length};
-
-    @fin = map { $self->{_symbols}{$_} } @fin
-      if $self->{_recover_symbols};
-
-    return @fin;
-}
-
-1;
-__END__
-
+=back
 
 =head1 TODO
 
@@ -210,18 +191,9 @@ __END__
 
 I need to explain Markov Chains, and flesh out the examples some more.
 
-=item Serialization interface
-
-Currently seeding the chain list is very intensive, and so there
-should be a useful way to serialize objects of Algorithm::MarkovChain.
-
-With the current implementation there are no private object variables,
-so it's possible to cheat and just freeze the raw object, but I
-wouldn't want for people to rely on that.
-
 =item Fix bugs/respond to feature requests
 
-Just email me <richardc@unixbeard.net> and we'll sort something out...
+Just email me <richardc@unixbeard.net> and I'll hit it with hammers...
 
 =back
 

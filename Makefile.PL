@@ -1,16 +1,13 @@
 use ExtUtils::MakeMaker;
-# See lib/ExtUtils/MakeMaker.pm for details of how to influence
-# the contents of the Makefile that is written.
-WriteMakefile(
-              'NAME'         => 'Algorithm::MarkovChain',
-              'VERSION_FROM' => 'MarkovChain.pm', # finds $VERSION
-              'dist' => {
-                         COMPRESS=>'gzip -9f',
-                         SUFFIX=>'gz',
-                         DIST_DEFAULT => 'tardist'
-                        },
-              $] >= 5.005 ? ('AUTHOR'   => 'Richard Clamp <richardc@unixbeard.net>',
-                             'ABSTRACT' => 'Markov Chain implementation',
-                            ) : ()
-
-             );
+WriteMakefile
+  (
+   NAME         => 'Algorithm::MarkovChain',
+   VERSION_FROM => 'MarkovChain.pm',
+   AUTHOR       => 'Richard Clamp <richardc@unixbeard.net>',
+   ABSTRACT     => 'Markov Chain implementation',
+   PM           => {
+                    'MarkovChain.pm' => '$(INST_LIBDIR)/MarkovChain.pm',
+                    'Base.pm'        => '$(INST_LIBDIR)/MarkovChain/Base.pm',
+   },
+   PREREQ_PM    => { 'Test::More' => 0 },
+  );
