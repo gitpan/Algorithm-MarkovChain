@@ -4,7 +4,7 @@ use strict;
 require 5.005;
 
 use vars qw($VERSION);
-$VERSION = '0.02';
+$VERSION = '0.03';
 
 use fields qw(_chains _symbols _recover_symbols _longest);
 
@@ -88,7 +88,6 @@ sub seed {
     croak 'seed: bad symbols' unless ref($args{symbols}) eq 'ARRAY';
 
     my $longest = $args{longest} || 4;
-    $self->{_longest} = $longest if $longest > $self->{_longest};
 
     local @::symbols;
     *::symbols = $args{symbols};
@@ -107,6 +106,11 @@ sub seed {
     }
 
     for my $redo (keys %tweaked) {
+        my @tmp = split $;, $redo;
+        my $length = scalar @tmp;
+        $self->{_longest} = $length
+          if $length > $self->{_longest};
+
         local %::foo;
         *::foo = $self->{_chains}{$redo};
         my $total;
@@ -119,13 +123,20 @@ sub seed {
 
 Uses the constructed chains to produce symbol streams
 
-Takes two optional parameters C<length> and C<complete>
-
-C<length> specifies the number of symbols to produce (default is 30)
+Takes four optional parameters C<complete>, C<length>,
+C<longest_subchain>, C<force_length> and C<stop_at_terminal>
 
 C<complete> provides a starting point for the generation of output.
 Note: the algorithm will discard elements of this list if it does not
 find a starting chain that matches it, this is infinite-loop avoidance.
+
+C<length> specifies the minimum number of symbols desired (default is 30)
+
+C<stop_at_terminal> directs the spew to stop chaining at the first
+terminal point reached
+
+C<force_length> ensures you get exactly C<length> symbols returned
+(note this overrides the behaviour of C<stop_at_terminal>)
 
 =cut
 
@@ -137,31 +148,34 @@ sub spew {
     croak "spew called without any chains seeded"
       unless @heads;
 
-    my $length = $args{length} || 30;
+    my $length   = $args{length} || 30;
+    my $subchain = $args{longest_subchain} || $length;
 
-    my @prev;
+    my @fin; # final chain
+    my @sub; # current sub-chain
     if ($args{complete} && ref $args{complete} eq 'ARRAY') {
-        @prev = @{ $args{complete} };
-        for (;;) {
-            my $start = join $;, @prev;
-            last if $self->{_chains}{$start};
-            last unless @prev;
-            shift @prev;
+        @sub = @{ $args{complete} };
+    }
+
+    while (@fin < $length) {
+        if (@sub && ((!$self->{_chains}{$sub[-1]}) || (@sub > $subchain))) { # we've gone terminal
+            push @fin, @sub;
+            @sub = ();
+            next if $args{force_length}; # ignore stop_at_terminal
+            last if $args{stop_at_terminal};
         }
-    }
 
-    if (!@prev) { # pull a random chain from those we've already picked
-        @prev = split $;, $heads[ rand @heads ];
-    }
+        @sub = split $;, $heads[ rand @heads ]
+          unless @sub;
 
-    while (@prev < $length) {
         my $consider = 1;
-        if (@prev > 1) {
-            $consider = rand ($self->{_longest} - 1);
+        if (@sub > 1) {
+            $consider = int rand ($self->{_longest} - 1);
         }
 
-        my $start = join($;, @prev[-$consider..-1]);
-        next unless $self->{_chains}{$start};
+        my $start = join($;, @sub[-$consider..-1]);
+
+        next unless $self->{_chains}{$start}; # loop if we missed
 
         my $cprob;
         my $target = rand;
@@ -169,16 +183,19 @@ sub spew {
         for my $word (keys %{ $self->{_chains}{$start} }) {
             $cprob += $self->{_chains}{$start}{$word}{prob};
             if ($cprob >= $target) {
-                push @prev, $word;
+                push @sub, $word;
                 last;
             }
         }
     }
 
-    @prev = map { $self->{_symbols}{$_} } @prev
+    $#fin = $length
+      if $args{force_length};
+
+    @fin = map { $self->{_symbols}{$_} } @fin
       if $self->{_recover_symbols};
 
-    return @prev;
+    return @fin;
 }
 
 1;
