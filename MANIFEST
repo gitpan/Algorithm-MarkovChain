@@ -1,8 +1,11 @@
 MANIFEST
 Changes
+README
+META.yml
+Build.PL
 Makefile.PL
-MarkovChain.pm
-Base.pm
+lib/Algorithm/MarkovChain.pm
+lib/Algorithm/MarkovChain/Base.pm
 t/Algorithm-MarkovChain.t
 demos/textfile
 demos/empty
