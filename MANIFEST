@@ -1,0 +1,7 @@
+README
+Changes
+MANIFEST
+Makefile.PL
+MarkovChain.pm
+test.pl
+demos/textfile
